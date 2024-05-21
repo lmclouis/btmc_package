@@ -1,4 +1,4 @@
-from utils import bt
+from .utils import bt
 
 # __version__ = '0.0.1'
 
