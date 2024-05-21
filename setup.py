@@ -4,8 +4,8 @@ with open('README.md', 'r') as file:
     long_description = file.read()
 
 setuptools.setup(
-    name='backtesting_mc',  # this should be unique
-    version='0.0.1',
+    name='btmc',  # this should be unique
+    version='0.0.2',
     author='mc',
     description='backtesing package',
     packages=setuptools.find_packages(),
