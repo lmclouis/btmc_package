@@ -24,8 +24,9 @@ class bt():
 
     '''
 
-    def __init__(self, resolution=None, delay=None, data=None, model=None, window=None, threshold=None, long_or_short=None, direction=None, tc=None):
+    def __init__(self, symbol=None,  data=None, resolution=None, delay=None, model=None, window=None, threshold=None, long_or_short=None, direction=None, tc=None, max_days_in_position=None):
 
+        self.symbol = symbol
         self.resolution = resolution
         self.delay = delay
         self.data = data
@@ -35,17 +36,37 @@ class bt():
         self.long_or_short = long_or_short
         self.direction = direction
         self.tc = tc
+        self.max_days_in_position = max_days_in_position
 
-    def backtesting(self, resolution=None, delay=None, data=None, model=None, window=None, threshold=None, long_or_short=None, direction=None, tc=None):
+    def get_current_parmas(self, resolution=None, delay=None, data=None, model=None, window=None, threshold=None, long_or_short=None, direction=None, tc=None, max_days_in_position=None):
+
+        self.params = {
+            'symbol': self.symbol,
+            'resolution': self.resolution,
+            'delay': self.delay,
+            'data': self.data,
+            'model': self.model,
+            'window': self.window,
+            'threshold': self.threhold,
+            'long_or_short': self.long_or_short,
+            'direction': self.direction,
+            'trancost': self.tc,
+            'max_days_in_position': self.max_days_in_position
+        }
+
+        return self.params
+
+    def run_strategy(self, resolution=None, delay=None, data=None, model=None, window=None, threshold=None, long_or_short=None, direction=None, tc=None, max_days_in_position=None):
         '''
 
-        columns         : price , factor
+        data            : price , factor ad index in datetime
+        resolution      : 1min, 5min, 10min, 1hour, 2hour, 4hour, daily 
         model           : z_score, mad_z_score, ma_x, ma_diff, percentile, min_max
         window          : 1st parameters
         threshold       : 2nd parameters
         long_or_short   : long short, long, short
         direction:      : momentum, reversion
-        tc              : percentage
+        trancost        : percentage
 
         '''
 
@@ -68,8 +89,23 @@ class bt():
         if tc is not None:
             self.tc = tc
 
-        # Implement the backtesting logic using the updated instance variables
-        pass
+        # Set the annualization factor based on the resolution
+        if self.resolution == '1min':
+            annual_factor = 252 * 390
+        elif self.resolution == '5min':
+            annual_factor = 252 * 78
+        elif self.resolution == '10min':
+            annual_factor = 252 * 39
+        elif self.resolution == '1hour':
+            annual_factor = 252 * 6.5
+        elif self.resolution == '2hour':
+            annual_factor = 252 * 3.25
+        elif self.resolution == '4hour':
+            annual_factor = 252 * 1.625
+        elif self.resolution == 'daily':
+            annual_factor = 252
+        else:
+            raise ValueError("Invalid resolution provided")
 
         df = data.copy()
 
@@ -82,7 +118,7 @@ class bt():
             # zscore is n standard d away from mean
             df['z'] = (df['factor'] - df['ma']) / df['sd']
 
-            if direction == 'momentum':
+            if self.direction == 'momentum':
                 if long_or_short == 'long short':
                     df['pos'] = np.where(df['z'] > threshold,
                                          1, np.where(df['z'] < -threshold, -1, 0))
@@ -113,7 +149,7 @@ class bt():
             df['z_mad'] = (df['factor'] - df['median']) / (df['mad'] * 1.4826)
 
             # Generate positions based on the Z-score
-            if direction == 'momentum':
+            if self.direction == 'momentum':
                 if long_or_short == 'long short':
                     df['pos'] = np.where(df['z_mad'] > threshold, 1, np.where(
                         df['z_mad'] < -threshold, -1, 0))
@@ -141,7 +177,7 @@ class bt():
             df['sma_1'] = df['factor'].rolling(window).mean()
             df['sma_2'] = df['factor'].rolling(threshold).mean()
 
-            if direction == 'momentum':
+            if self.direction == 'momentum':
                 if long_or_short == 'long short':
                     df['pos'] = np.where(df['sma_1'] > df['sma_2'], 1, np.where(
                         df['sma_1'] < df['sma_2'], -1, 0))
@@ -168,7 +204,7 @@ class bt():
             df['ma'] = df['factor'].rolling(window).mean()
             df['ma_diff'] = (df['factor'] / df['ma']) - 1.0
 
-            if direction == 'momentum':
+            if self.direction == 'momentum':
                 if long_or_short == 'long short':
                     df['pos'] = np.where(df['ma_diff'] > threshold, 1, np.where(
                         df['ma_diff'] < -threshold, -1, 0))
@@ -197,7 +233,7 @@ class bt():
             df['percentile_low'] = df['factor'].rolling(window).quantile(
                 threshold)  # threhold 0.95 = 5 prcentile
 
-            if direction == 'momentum':
+            if self.direction == 'momentum':
                 if long_or_short == 'long short':
                     df['pos'] = np.where(df['factor'] > df['percentile_high'], 1, np.where(
                         df['factor'] < df['percentile_low'], -1, 0))
@@ -230,7 +266,7 @@ class bt():
             # threhold 0.05 = 95
             # threhold 0.95 = 05
 
-            if direction == 'momentum':
+            if self.direction == 'momentum':
                 if long_or_short == 'long short':
                     df['pos'] = np.where(df['x'] > (
                         1 - threshold), 1, np.where(df['x'] < (threshold), -1, 0))
@@ -265,52 +301,94 @@ class bt():
         elif model == 'percentile':
             df['pos'] = percentile(df, window, threshold, long_or_short)
         else:
-            sys.exit()
+            raise ValueError("Invalid model provided")
 
         df['pos_delay'] = df['pos'].shift(delay).fillna(0)
         df['pos_delay_t-1'] = df['pos_delay'].shift(1).fillna(0)
         df['trade'] = df['pos_delay'] - df['pos_delay_t-1']
-        df['cost'] = df['trade'].abs() * df['price'] * tc/100
+        df['cost'] = df['trade'].abs() * df['price'] * self.tc/100
         df['strategy_return'] = df['pos_delay_t-1'] * \
             df['log_return'] - df['cost']
+
+        if max_days_in_position is not None:
+            df['days_in_position'] = df['pos_delay'].groupby(
+                (df['pos_delay'] != df['pos_delay'].shift()).cumsum()).cumcount()
+            df['pos_delay'] = np.where(
+                df['days_in_position'] >= max_days_in_position, 0, df['pos_delay'])
+
         df.dropna(inplace=True)
         df['cum_return'] = df['log_return'].cumsum().apply(np.exp) - 1
         df['cum_strategy'] = df['strategy_return'].cumsum().apply(np.exp) - 1
-        bnh_return = df['cum_return'].iloc[-1]
-        finalReturn = df['cum_strategy'].iloc[-1]
-        bnh_return_APY = (df['log_return'].apply(np.exp)-1).mean() * 252
-        APY = (df['strategy_return'].apply(np.exp)-1).mean() * 252
-        risk = (df['strategy_return'].apply(np.exp) - 1).std() * 252 ** 0.5
-        sharpeRatio = APY / risk
-        drawDown = df['cum_strategy'] / df['cum_strategy'].cummax() - 1
-        maxDrawDown = (-drawDown).max()
-        calmarRatio = APY / maxDrawDown
-        no_trade = df['trade'].abs().sum()
-        no_days_in_position = df['pos_delay_t-1'].abs().sum()
-        strategyDrawDown = drawDown
-        strategyDrawDown = strategyDrawDown[strategyDrawDown == 0]
-        if len(strategyDrawDown) > 1:
-            drawDownPeriods = (strategyDrawDown.index[1:].to_pydatetime(
-            ) - strategyDrawDown.index[:-1].to_pydatetime()).max()
+
+        self.result = df
+
+        return self.result
+
+    def get_metrics(self):
+        if self.result is None:
+            print('No result to plot yet. Run a strategy first!')
+
         else:
-            drawDownPeriods = None
+            df = self.result
+            bnh_return = df['cum_return'].iloc[-1]
+            finalReturn = df['cum_strategy'].iloc[-1]
+            bnh_return_APY = (df['log_return'].apply(
+                np.exp)-1).mean() * self.annual_factor
+            APY = (df['strategy_return'].apply(
+                np.exp)-1).mean() * self.annual_factor
+            risk = (df['strategy_return'].apply(np.exp) -
+                    1).std() * (self.annual_factor ** 0.5)
+            sharpeRatio = APY / risk
+            drawDown = df['cum_strategy'] / df['cum_strategy'].cummax() - 1
+            maxDrawDown = (-drawDown).max()
+            calmarRatio = APY / maxDrawDown
+            no_trade = df['trade'].abs().sum()
+            no_days_in_position = df['pos_delay_t-1'].abs().sum()
+            strategyDrawDown = drawDown
+            strategyDrawDown = strategyDrawDown[strategyDrawDown == 0]
+            if len(strategyDrawDown) > 1:
+                drawDownPeriods = (strategyDrawDown.index[1:].to_pydatetime(
+                ) - strategyDrawDown.index[:-1].to_pydatetime()).max()
+            else:
+                drawDownPeriods = None
 
-        metrics_dict = {
-            'window': window,
-            'threshold': threshold,
-            'finalReturn': finalReturn,
-            'APY': APY,
-            'risk': risk,
-            'sharpeRatio': sharpeRatio,
-            'maxDrawDown': maxDrawDown,
-            'calmarRatio': calmarRatio,
-            'drawDownPeriods': drawDownPeriods,
-            '# of Trade': no_trade,
-            '# of days in position': no_days_in_position,
-            'bnh Return APY': bnh_return_APY,
-            'outperform': APY - bnh_return_APY
-        }
-        print(metrics_dict)
+            metrics_dict = {
+                'window': self.window,
+                'threshold': self.threshold,
+                'finalReturn': finalReturn,
+                'APY': APY,
+                'risk': risk,
+                'sharpeRatio': sharpeRatio,
+                'maxDrawDown': maxDrawDown,
+                'calmarRatio': calmarRatio,
+                'drawDownPeriods': drawDownPeriods,
+                '# of Trade': no_trade,
+                '# of days in position': no_days_in_position,
+                'bnh Return APY': bnh_return_APY,
+                'outperform': APY - bnh_return_APY
+            }
+            print(metrics_dict)
 
-        return df, pd.Series([window, threshold, finalReturn, APY, risk, sharpeRatio, maxDrawDown, calmarRatio, drawDownPeriods, bnh_return_APY, APY - bnh_return_APY],
-                             index=['window', 'threshold', 'finalReturn', 'APY', 'risk', 'sharpeRatio', 'maxDrawDown', 'calmarRatio', 'drawDownPeriods', 'bnh Return', 'outperform'])
+            # return self.result, pd.Series([window, threshold, finalReturn, APY, risk, sharpeRatio, maxDrawDown, calmarRatio, drawDownPeriods, bnh_return_APY, APY - bnh_return_APY],
+            #                               index=['window', 'threshold', 'finalReturn', 'APY', 'risk', 'sharpeRatio', 'maxDrawDown', 'calmarRatio', 'drawDownPeriods', 'bnh Return', 'outperform'])
+
+            return metrics_dict
+
+    def plot_strategy(self):
+        if self.result is None:
+            print('No result to plot yet. Run a strategy first!')
+        else:
+            self.result[['cum_return', 'cum_strategy']].plot(figsize=(
+                15, 7), title=f'{self.symbol} Equity Curve, window: {self.window}, threshold: {self.threshold}')
+
+    def optimize_para(self, range1, range2):
+        self.opt = []
+        if self.result is None:
+            print('No result to process yet. Run a strategy first!')
+        else:
+            for (sma1, sma2) in [(sma1, sma2) for sma1 in range1 for sma2 in range2]:
+                self.opt.append(self.update_and_run((sma1, sma2)))
+
+            self.opt_final = pd.DataFrame(self.opt).sort_values(
+                by=['sharpeRatio'], ascending=False)
+            return self.opt_final
