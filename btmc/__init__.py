@@ -1,1 +1,1 @@
-from .main import bt
+from main import bt
